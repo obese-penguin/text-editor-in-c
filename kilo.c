@@ -11,11 +11,19 @@
 
 /*** defines ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
+#define KILO_VERSION "0.0.1"
 
+enum editorKey {
+    ARROW_UP = 1000,
+    ARROW_DOWN,
+    ARROW_RIGHT,
+    ARROW_LEFT
+};
 
 /*** data ***/
 
 struct editorConfig {
+    int cx, cy; 
     int screenrows;
     int screencols;
     struct termios orig_termios;
@@ -89,7 +97,7 @@ void enableRawMode()
         die("tcsetattr");
 }
 
-char editorReadKey()
+int editorReadKey()
 {
     int nread;
     char c;
@@ -97,6 +105,24 @@ char editorReadKey()
     while((nread = read(STDIN_FILENO, &c, 1)) != 1)
     {
         if(nread == -1 && errno != EAGAIN) die("read"); // errno != EAGAIN is for cygwin
+    }
+
+    char seq[3];
+    if(c == '\x1b')
+    {
+        if(read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+        if(read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+
+        if(seq[0] == '[')
+        {
+            switch(seq[1])
+            {
+                case 'A': return ARROW_UP;
+                case 'B': return ARROW_DOWN;
+                case 'C': return ARROW_RIGHT;
+                case 'D': return ARROW_LEFT;
+            }
+        }
     }
 
     return c;
@@ -150,6 +176,8 @@ int getWindowSize(int* rows, int* cols)
 
 void initEditor()
 {
+    E.cx = 0; E.cy = 0;
+
     if(getWindowSize(&E.screenrows, &E.screencols) == -1)
     {
         die("getWindowSize");
@@ -161,13 +189,34 @@ void editorDrawRows(struct abuf *ab)
     int y;
     for(y = 0; y < E.screenrows; y += 1)
     {
-        abAppend(ab, "~", 1);
-        // write(STDOUT_FILENO, "~", 1);
+        abAppend(ab, "\x1b[K", 3);
+
+        if(y == E.screenrows/3)
+        {
+            char welcome[80];
+            int welcomelen = snprintf(welcome, sizeof(welcome), "Kilo editor -- version %s", KILO_VERSION);
+            
+            if(welcomelen > E.screencols) welcomelen = E.screencols;
+
+            int padding = (E.screencols - welcomelen)/2;
+
+            if(padding)
+            {
+                abAppend(ab, "~", 1);
+                padding -= 1;
+            }
+
+            while(padding--)
+                abAppend(ab, " ", 1);
+
+            abAppend(ab, welcome, welcomelen);
+        }
+
+        else abAppend(ab, "~", 1);
 
         if(y != E.screenrows - 1)
         {
             abAppend(ab, "\r\n", 3);
-            // write(STDOUT_FILENO, "\r\n", 2);
         }
     }
 }
@@ -176,26 +225,46 @@ void editorDrawRows(struct abuf *ab)
 void editorRefreshScreen()
 {
     struct abuf ab = ABUF_INIT;
-    
-    abAppend(&ab, "\x1b[2J", 4);
-    // write(stdout_fileno, "\x1b[2J", 4); // that is the sequence to clear screen. 
+
+    abAppend(&ab, "\x1b[?25l", 6); // make cursor disappear
     abAppend(&ab, "\x1b[H", 3);
-    // write(STDOUT_FILENO, "\x1b[H", 3); // send cursor to top of the screen. 
 
     editorDrawRows(&ab);
 
-    abAppend(&ab, "\x1b[H", 3);
-    // write(STDOUT_FILENO, "\x1b[H", 3);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.cy+1, E.cx+1);
+    abAppend(&ab, buf, strlen(buf));
 
+    abAppend(&ab, "\x1b[?25h", 6); // make cursor reappear
+    
     write(STDOUT_FILENO, ab.b, ab.len);
     abFree(&ab);
 }
 
 /*** input  ***/
 
+void editorMoveCursor(int c)
+{
+    switch (c)
+    {
+        case ARROW_UP:
+            E.cy -= 1;
+            break;
+        case ARROW_LEFT:
+            E.cx -= 1;
+            break;
+        case ARROW_DOWN:
+            E.cy += 1;
+            break;
+        case ARROW_RIGHT:
+            E.cx += 1;
+            break;
+    }
+}
+
 void editorProcessKeypress()
 {
-    char c = editorReadKey();
+    int c = editorReadKey();
 
     switch (c)
     {
@@ -204,6 +273,13 @@ void editorProcessKeypress()
             write(STDOUT_FILENO, "\x1b[H", 3); 
             exit(0); // 0 for success; 1 for failure
             break;
+
+        case ARROW_UP:
+        case ARROW_DOWN:
+        case ARROW_RIGHT:
+        case ARROW_LEFT:
+           editorMoveCursor(c);
+            break; 
     }
 }
 
