@@ -5,6 +5,7 @@
 #define _GNU_SOURCE
 
 #include<stdio.h>
+#include<stdbool.h>
 #include<unistd.h>
 #include<termios.h>
 #include<stdlib.h>
@@ -368,6 +369,7 @@ void editorRefreshScreen()
 void editorMoveCursor(int c)
 {
     erow *row = (E.cy > E.numrows) ? NULL : &E.row[E.cy];
+   
     switch (c)
     {
         case ARROW_UP:
@@ -377,6 +379,11 @@ void editorMoveCursor(int c)
         case ARROW_LEFT:
             if(E.cx != 0)
                 E.cx -= 1;
+            else if (E.cy > 0)
+            {
+                E.cy -= 1;
+                E.cx = E.row[E.cy].size;
+            }
             break;
         case ARROW_DOWN:
             if(E.cy < E.numrows)
@@ -385,8 +392,18 @@ void editorMoveCursor(int c)
         case ARROW_RIGHT:
             if(E.cx < row->size && row)
             E.cx += 1;
+            else if(row)
+            {
+                E.cy += 1;
+                E.cx = 0;
+            }
             break;
     }
+
+    row = (E.cy > E.numrows) ? NULL : &E.row[E.cy];
+    int rowlen = row ? row->size : 0; 
+    if(E.cx > rowlen)
+        E.cx = row->size;
 }
 
 void editorProcessKeypress()
