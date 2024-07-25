@@ -14,6 +14,7 @@
 #include<errno.h>
 #include<time.h>
 #include<string.h>
+#include<fcntl.h>
 #include<sys/ioctl.h>
 #include<sys/types.h>
 
@@ -23,6 +24,7 @@
 #define KILO_TAB_STOP 8
 
 enum editorKey {
+    BACKSPACE = 127,
     ARROW_UP = 1000,
     ARROW_DOWN,
     ARROW_RIGHT,
@@ -375,6 +377,31 @@ void editorInsertChar(int c)
 }
 
 /*** file i/o  ***/
+char* editorRowsToString(int *buflen)
+{
+    // returns both buff and total len of buff
+    int totlen = 0;
+    int j;
+    for(j = 0; j < E.numrows; j += 1)
+    {
+        totlen += E.row[j].size + 1; 
+    }
+    
+    *buflen = totlen;
+
+    char* buf = malloc(totlen);
+    char* p = buf;
+    for(j = 0; j < E.numrows; j += 1)
+    {
+        memcpy(p, E.row[j].chars, E.row[j].size);
+        p += E.row[j].size;
+        *p = '\n';
+        p++;
+    }
+
+    return buf;
+}
+
 void editorOpen(char* filename)
 {
     FILE* fp = fopen(filename, "r");
@@ -397,6 +424,20 @@ void editorOpen(char* filename)
     free(line);
     fclose(fp);
 
+}
+
+void editorSave()
+{
+    if(E.filename == NULL) return;
+
+    int len;
+    char* buf = editorRowsToString(&len);
+
+    int fd = open(E.filename, O_RDWR | O_CREAT, 0644);
+    ftruncate(fd, len);
+    write(fd, buf, len);
+    close(fd);
+    free(buf);
 }
 
 /*** output  ***/
@@ -545,12 +586,20 @@ void editorProcessKeypress()
 
     switch (c)
     {
+        case '\r':
+            // something
+            break;
+
         case CTRL_KEY('q'):
             write(STDOUT_FILENO, "\x1b[2J", 4); 
             write(STDOUT_FILENO, "\x1b[H", 3); 
             exit(0); // 0 for success; 1 for failure
             break;
     
+        case CTRL_KEY('s'):
+            editorSave();
+            break;
+
         case HOME_KEY:
             E.cx = 0;
             break;
@@ -559,6 +608,12 @@ void editorProcessKeypress()
             if(E.cy < E.numrows)
                 E.cx = E.row[E.cy].size; 
             break;
+
+        case BACKSPACE: 
+        case CTRL_KEY('h'):
+        case DEL_KEY:
+            // something
+            break; 
 
         case PAGE_UP:
         case PAGE_DOWN:
@@ -577,6 +632,11 @@ void editorProcessKeypress()
                 }
                 break;
             }
+
+        case CTRL_KEY('l'):
+        case '\x1b':
+            break;
+
         case ARROW_UP:
         case ARROW_DOWN:
         case ARROW_RIGHT:
