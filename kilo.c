@@ -21,6 +21,7 @@
 #define CTRL_KEY(k) ((k) & 0x1f)
 #define KILO_VERSION "0.0.1"
 #define KILO_TAB_STOP 8
+#define KILO_QUIT_TIMES 2
 
 enum editorKey {
     BACKSPACE = 127,
@@ -362,7 +363,7 @@ void editorAppendRow(char* s, size_t len)
     E.dirty++;
 }
 
-void editorRowInsertChar(erow *row, int at, int c)
+void editorRowInsertChar(erow* row, int at, int c)
 {
     if(at < 0 || at > row->size) at = row->size;
     row->chars = realloc(row->chars, row->size + 2);
@@ -374,6 +375,15 @@ void editorRowInsertChar(erow *row, int at, int c)
     E.dirty++;
 }
 
+void editorRowDeleteChar(erow* row, int at)
+{
+    if(at < 0 || at >= row->size) return;
+    memmove(&row->chars[at], &row->chars[at+1], row->size - at);
+    row->size--;
+    editorUpdateRow(row);
+    E.dirty++;
+}
+
 /*** editor oprerations  ***/
 
 void editorInsertChar(int c)
@@ -381,6 +391,17 @@ void editorInsertChar(int c)
     if(E.cy == E.numrows) editorAppendRow("", 0);
     editorRowInsertChar(&E.row[E.cy], E.cx, c);
     E.cx += 1;
+}
+
+void editorDeleteChar()
+{
+   if(E.cy == E.numrows) return; 
+   erow* row = &E.row[E.cy];
+   if(E.cx > 0)
+   {
+        editorRowDeleteChar(row, E.cx - 1);
+        E.cx--;
+   }
 }
 
 /*** file i/o  ***/
@@ -607,6 +628,7 @@ void editorProcessKeypress()
 {
     int c = editorReadKey();
 
+    static int quit_times = KILO_QUIT_TIMES;
     switch (c)
     {
         case '\r':
@@ -614,6 +636,13 @@ void editorProcessKeypress()
             break;
 
         case CTRL_KEY('q'):
+            if(E.dirty && quit_times > 0)
+            {
+                editorSetStatusMessage("WARNING! Unsaved changes. Press Ctrl-Q %d more times to quit.", quit_times); 
+                quit_times -= 1;
+                return;
+            }
+            
             write(STDOUT_FILENO, "\x1b[2J", 4); 
             write(STDOUT_FILENO, "\x1b[H", 3); 
             exit(0); // 0 for success; 1 for failure
@@ -636,6 +665,8 @@ void editorProcessKeypress()
         case CTRL_KEY('h'):
         case DEL_KEY:
             // something
+            if(c == DEL_KEY) editorMoveCursor(ARROW_RIGHT);
+            editorDeleteChar();
             break; 
 
         case PAGE_UP:
@@ -670,6 +701,7 @@ void editorProcessKeypress()
             editorInsertChar(c);
             break;
     }
+    quit_times = KILO_QUIT_TIMES;
 }
 
 /*** init ***/
